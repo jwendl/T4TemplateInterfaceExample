@@ -1,0 +1,106 @@
+﻿<#@ template debug="true" language="C#" hostspecific="True" #>
+<#@ assembly name="System.Core" #>
+<#@ assembly name="System.IO" #>
+<#@ assembly name="System.ComponentModel.DataAnnotations" #>
+<#@ assembly name="$(TargetDir)Common.dll" #>
+<#@ import namespace="System.Linq" #>
+<#@ import namespace="System.Text" #>
+<#@ import namespace="System.Collections.Generic" #>
+<#@ import namespace="System.ComponentModel.DataAnnotations" #>
+<#@ include file="MultipleOutputHelper.ttinclude" #>
+<#
+	var manager = Manager.Create(Host, GenerationEnvironment);
+
+	var directoryInfo = new DirectoryInfo(Host.ResolvePath(@"..\..\Common\Interfaces"));
+	var fileInfoList = directoryInfo.GetFiles();
+
+	var assemblyDirectoryInfo = new DirectoryInfo(Host.ResolvePath(@"..\..\Common\bin\Debug\Common.dll"));
+	var loadedAssembly = Assembly.LoadFrom(assemblyDirectoryInfo.FullName);
+
+	foreach (var fileInfo in fileInfoList)
+	{
+		var interfaceName = fileInfo.Name.Replace(".cs", String.Empty);
+		var className = interfaceName.Replace("I", String.Empty);
+		var loadedInterface = loadedAssembly.GetTypes().Where(t => t.Name == interfaceName).FirstOrDefault();
+
+		manager.StartNewFile(String.Format("{0}.generated.cs", className));
+#>
+//  ----------------------------------------------------------------------------------------------
+//  Template: Generates a business object that has properties based on the interface provided.
+//  Author: Justin Wendlandt
+//  Website: www.jwendl.net
+//  Based on the work of: http://blog.baltrinic.com
+//  Links: 
+//          MSDN about developing T4 files: http://msdn.microsoft.com/en-us/library/bb126445.aspx
+//                                          http://msdn.microsoft.com/en-us/library/dd820620.aspx 
+//  ----------------------------------------------------------------------------------------------
+using Csla;
+using Common;
+using System;
+using System.ComponentModel.DataAnnotations;
+
+namespace CslaMagenicMasters.Business.Models
+{
+	/// <summary>
+	/// Generated partial classes for properties.
+	/// </summary>
+	[Serializable]
+	public partial class <#= className #>
+<#
+	if (interfaceName.Contains("Collection"))
+	{
+		if (interfaceName.Contains("Edit"))
+		{ 
+			#>		: BusinessListBase<<#= className #>, <#= interfaceName.Replace("Collection", String.Empty) #>>, <#= interfaceName #>
+<#		} else { 
+			#>		: ReadOnlyListBase<<#= className #>, <#= interfaceName.Replace("Collection", String.Empty) #>>, <#= interfaceName #>
+<#		} 
+	} else if (interfaceName.Contains("Edit")) { 
+		#>		: BusinessBase<<#= className #>>, <#= interfaceName #>
+<# } else { 
+		#>		: ReadOnlyBase<<#= className #>>, <#= interfaceName #>
+<# } #>	{
+<# 
+		if (loadedInterface != null)
+		{
+			var properties = loadedInterface.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.FlattenHierarchy);
+			foreach (var property in properties)
+			{ 
+				// TODO: figure out a better way to do this.
+				var propertyTypeName = property.PropertyType.Name;
+				if (propertyTypeName == "Int32")
+				{
+					propertyTypeName = "int";
+				}
+		#>
+		public static readonly PropertyInfo<<#= propertyTypeName #>> <#= property.Name #>Property = RegisterProperty<<#= propertyTypeName #>>(pi => pi.<#= property.Name #>); <#
+				var maxLengthAttributeInfo = property.GetCustomAttributes(typeof(MaxLengthAttribute)).SingleOrDefault() as MaxLengthAttribute;
+				if (maxLengthAttributeInfo != null)
+				{
+					#>	
+		[MaxLength(<#= maxLengthAttributeInfo.Length #>)] <#
+				}
+
+				var displayAttributeInfo = property.GetCustomAttributes(typeof(DisplayAttribute)).SingleOrDefault() as DisplayAttribute;
+				if (displayAttributeInfo != null)
+				{
+					#>	
+		[Display(ResourceType = typeof(<#= displayAttributeInfo.ResourceType.Name #>), Name = "<#= displayAttributeInfo.Name #>")] <#
+				}
+
+#>
+
+		public <#= propertyTypeName #> <#= property.Name #>
+		{
+			get { return GetProperty(<#= property.Name #>Property); }
+<# if (property.GetSetMethod() != null && interfaceName.Contains("Edit")) { #>			set { SetProperty(<#= property.Name #>Property, value); } 
+<# } #>
+		}
+<#	}
+		} #>	}
+}
+<# 
+		manager.EndBlock();
+	}
+#>
+<# manager.Process(true); #>
